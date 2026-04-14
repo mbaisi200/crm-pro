@@ -7,9 +7,9 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useCRMStore } from '@/stores/crm-store'
 import { loginMaster, loginAdmin, registerMaster } from '@/lib/crm/firebase-crud'
-import { auth, testFirebaseConnection } from '@/lib/firebase'
+import { auth, testFirebaseConnection, getCurrentDomain } from '@/lib/firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { Loader2, Building2, Shield, User, AlertTriangle, Wifi, WifiOff } from 'lucide-react'
+import { Loader2, Building2, Shield, User, AlertTriangle, Wifi, WifiOff, Globe, Lock } from 'lucide-react'
 
 export function LoginScreen() {
   const { setUser } = useCRMStore()
@@ -19,7 +19,13 @@ export function LoginScreen() {
   const [error, setError] = useState('')
   const [isRegister, setIsRegister] = useState(false)
   const [loginType, setLoginType] = useState<'master' | 'admin'>('master')
-  const [firebaseStatus, setFirebaseStatus] = useState<{ auth: boolean; firestore: boolean; errors: string[] } | null>(null)
+  const [firebaseStatus, setFirebaseStatus] = useState<{
+    auth: boolean;
+    firestore: boolean;
+    errors: string[];
+    currentDomain?: string;
+    authDomainAuthorized?: boolean;
+  } | null>(null)
   const [testingConnection, setTestingConnection] = useState(false)
 
   // Test Firebase connection on mount
@@ -192,11 +198,13 @@ export function LoginScreen() {
       }
     } catch (err: any) {
       console.error('[Login] Unexpected error:', err)
-      // Show more detailed error for debugging
       const errCode = err?.code || ''
       const errMessage = err?.message || String(err)
 
-      if (errCode === 'auth/api-key-not-valid' || errMessage.includes('api-key-not-valid')) {
+      if (errCode === 'auth/unauthorized-domain') {
+        const currentDomain = getCurrentDomain()
+        setError(`Domínio "${currentDomain}" não autorizado no Firebase. Veja as instruções abaixo para autorizar.`)
+      } else if (errCode === 'auth/api-key-not-valid' || errMessage.includes('api-key-not-valid')) {
         setError('Chave de API do Firebase inválida. Verifique a configuração do Firebase.')
       } else if (errCode === 'auth/invalid-api-key') {
         setError('API Key do Firebase inválida. Verifique as credenciais no código.')
@@ -205,7 +213,7 @@ export function LoginScreen() {
       } else if (errCode === 'permission-denied') {
         setError('Permissão negada no Firestore. Configure as regras de segurança no Firebase Console.')
       } else {
-        setError(`Erro: ${errMessage}`)
+        setError(translateError(errMessage))
       }
     } finally {
       setLoading(false)
@@ -214,6 +222,10 @@ export function LoginScreen() {
 
   const translateError = (msg: string) => {
     if (!msg) return 'Erro ao fazer login'
+    if (msg.includes('auth/unauthorized-domain')) {
+      const currentDomain = getCurrentDomain()
+      return `Domínio "${currentDomain}" não autorizado no Firebase. Veja as instruções abaixo.`
+    }
     if (msg.includes('auth/invalid-credential') || msg.includes('auth/wrong-password') || msg.includes('auth/invalid-login')) return 'E-mail ou senha incorretos'
     if (msg.includes('auth/user-not-found')) return 'Usuário não encontrado'
     if (msg.includes('auth/email-already-in-use')) return 'Este e-mail já está em uso'
@@ -235,7 +247,9 @@ export function LoginScreen() {
       const status = await testFirebaseConnection()
       setFirebaseStatus(status)
 
-      if (!status.auth) {
+      if (status.authDomainAuthorized === false) {
+        setError(`Domínio "${status.currentDomain}" não autorizado no Firebase. Veja as instruções abaixo para autorizar.`)
+      } else if (!status.auth) {
         setError('Firebase Auth não está acessível. Verifique a API Key e o authDomain no Firebase Console.')
       } else if (!status.firestore) {
         setError('Firebase Firestore não está acessível. Provável problema com as Security Rules. Vá em Firebase Console > Firestore Database > Rules e permita acesso.')
@@ -249,6 +263,10 @@ export function LoginScreen() {
     }
   }
 
+  const currentDomain = firebaseStatus?.currentDomain || getCurrentDomain()
+  const hasDomainIssue = firebaseStatus?.authDomainAuthorized === false
+  const hasFirestoreIssue = firebaseStatus && !firebaseStatus.firestore
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1e3a5f] via-[#2d4f7a] to-[#1a2f4a] p-4">
       <div className="w-full max-w-md">
@@ -260,50 +278,98 @@ export function LoginScreen() {
           <p className="text-blue-200 mt-2">Gerencie seus negócios com inteligência</p>
         </div>
 
-        {/* Firebase Connection Status */}
-        {firebaseStatus && !firebaseStatus.firestore && (
-          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl backdrop-blur-sm">
+        {/* Domain Authorization Warning */}
+        {hasDomainIssue && (
+          <div className="mb-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl backdrop-blur-sm">
             <div className="flex items-start gap-3">
-              <WifiOff className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+              <Globe className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <p className="text-sm font-medium text-red-300">Problema de conexão com o Firestore</p>
-                <p className="text-xs text-red-400/80 mt-1">
-                  O Firebase Auth está {firebaseStatus.auth ? 'OK' : 'com problema'}, mas o Firestore não está acessível.
-                  Isso geralmente ocorre quando as Security Rules do Firestore estão bloqueando o acesso.
+                <p className="text-sm font-medium text-amber-300">Domínio não autorizado no Firebase</p>
+                <p className="text-xs text-amber-400/80 mt-1">
+                  O domínio <strong className="text-amber-200">{currentDomain}</strong> não está na lista de domínios autorizados do Firebase Auth.
+                  Por isso, o login via Firebase Authentication não funciona.
                 </p>
-                <div className="mt-2 space-y-1">
-                  {firebaseStatus.errors.map((err, i) => (
-                    <p key={i} className="text-xs text-red-400/70">• {err}</p>
-                  ))}
-                </div>
                 <div className="mt-3 p-2 bg-black/20 rounded-lg">
                   <p className="text-xs text-amber-300 font-medium">Como resolver:</p>
-                  <p className="text-xs text-amber-200/80 mt-1">
-                    1. Acesse <strong>Firebase Console</strong> → Seu projeto → <strong>Firestore Database</strong> → <strong>Rules</strong>
-                  </p>
-                  <p className="text-xs text-amber-200/80">
-                    2. Substitua as regras por:
-                  </p>
-                  <code className="block text-xs text-green-300 bg-black/30 p-2 rounded mt-1 font-mono">
-                    {'rules_version = \'2\';'}<br />
-                    {'service cloud.firestore {'}<br />
-                    {'  match /databases/{database}/documents {'}<br />
-                    {'    match /{document=**} {'}<br />
-                    {'      allow read, write: if true;'}<br />
-                    {'    }'}<br />
-                    {'  }'}<br />
-                    {'}'}
-                  </code>
-                  <p className="text-xs text-amber-200/60 mt-1">
-                    3. Clique em <strong>Publish</strong> e tente novamente
-                  </p>
+                  <div className="mt-1 space-y-1">
+                    <p className="text-xs text-amber-200/80">
+                      1. Acesse <strong>Firebase Console</strong> → Seu projeto (<strong>crm-sis-f9c29</strong>)
+                    </p>
+                    <p className="text-xs text-amber-200/80">
+                      2. No menu lateral, clique em <strong>Authentication</strong> → <strong>Settings</strong> (aba Configurações)
+                    </p>
+                    <p className="text-xs text-amber-200/80">
+                      3. Na seção <strong>Authorized domains</strong>, clique em <strong>Add domain</strong>
+                    </p>
+                    <p className="text-xs text-amber-200/80">
+                      4. Adicione o domínio: <code className="bg-black/30 px-1.5 py-0.5 rounded text-green-300">{currentDomain}</code>
+                    </p>
+                    <p className="text-xs text-amber-200/80">
+                      5. Se estiver usando localhost, adicione também: <code className="bg-black/30 px-1.5 py-0.5 rounded text-green-300">localhost</code>
+                    </p>
+                    <p className="text-xs text-amber-200/80 mt-1">
+                      6. Clique em <strong>Save</strong> e tente fazer login novamente
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {firebaseStatus && firebaseStatus.auth && firebaseStatus.firestore && (
+        {/* Firestore Permission Warning */}
+        {hasFirestoreIssue && (
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl backdrop-blur-sm">
+            <div className="flex items-start gap-3">
+              <Lock className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-red-300">Permissão negada no Firestore</p>
+                <p className="text-xs text-red-400/80 mt-1">
+                  O Firebase Auth está {firebaseStatus?.auth ? 'OK' : 'com problema'}, mas o Firestore está bloqueando o acesso.
+                  Isso geralmente ocorre quando as Security Rules do Firestore estão restritivas demais.
+                </p>
+                <div className="mt-2 space-y-1">
+                  {firebaseStatus?.errors.map((err, i) => (
+                    <p key={i} className="text-xs text-red-400/70">• {err}</p>
+                  ))}
+                </div>
+                <div className="mt-3 p-2 bg-black/20 rounded-lg">
+                  <p className="text-xs text-amber-300 font-medium">Como resolver:</p>
+                  <div className="mt-1 space-y-1">
+                    <p className="text-xs text-amber-200/80">
+                      1. Acesse <strong>Firebase Console</strong> → Seu projeto (<strong>crm-sis-f9c29</strong>)
+                    </p>
+                    <p className="text-xs text-amber-200/80">
+                      2. No menu lateral, clique em <strong>Firestore Database</strong> → aba <strong>Rules</strong>
+                    </p>
+                    <p className="text-xs text-amber-200/80">
+                      3. Substitua as regras por:
+                    </p>
+                    <code className="block text-xs text-green-300 bg-black/30 p-2 rounded mt-1 font-mono whitespace-pre">
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}
+                    </code>
+                    <p className="text-xs text-amber-200/60 mt-1">
+                      4. Clique em <strong>Publish</strong> e tente novamente
+                    </p>
+                    <p className="text-xs text-amber-200/40 mt-2">
+                      ⚠️ Essas regras permitem acesso total (para desenvolvimento). Em produção, use regras mais restritivas.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* All Connected */}
+        {firebaseStatus && firebaseStatus.auth && firebaseStatus.firestore && firebaseStatus.authDomainAuthorized !== false && (
           <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-xl backdrop-blur-sm">
             <div className="flex items-center gap-2">
               <Wifi className="w-4 h-4 text-green-400" />
@@ -436,6 +502,20 @@ export function LoginScreen() {
                   </>
                 )}
               </Button>
+
+              {/* Debug info */}
+              {firebaseStatus && (
+                <div className="mt-2 text-xs text-gray-400 text-center">
+                  Domínio atual: <code className="bg-gray-100 px-1 rounded">{currentDomain}</code>
+                  {' | '}
+                  Auth: {firebaseStatus.auth ? '✓' : '✗'}
+                  {' | '}
+                  Firestore: {firebaseStatus.firestore ? '✓' : '✗'}
+                  {firebaseStatus.authDomainAuthorized !== undefined && (
+                    <> {' | '} Domínio: {firebaseStatus.authDomainAuthorized ? '✓ Autorizado' : '✗ NÃO autorizado'}</>
+                  )}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
