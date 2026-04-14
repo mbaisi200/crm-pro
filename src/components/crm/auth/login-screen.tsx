@@ -26,11 +26,26 @@ export function LoginScreen() {
         // User is signed in via Firebase Auth - this is a master user
         // We need to find their user record in Firestore
         try {
-          const { getUsers } = await import('@/lib/crm/firebase-crud')
+          const { getUsers, createUser } = await import('@/lib/crm/firebase-crud')
           const users = await getUsers()
           const masterUser = users.find((u: any) => u.email === firebaseUser.email && u.role === 'master')
           if (masterUser) {
             setUser(masterUser)
+          } else {
+            // Auto-create Firestore record for Master created in Firebase Console
+            const docId = await createUser({
+              email: firebaseUser.email || '',
+              name: 'Master Admin',
+              role: 'master',
+              password: '',
+            })
+            setUser({
+              id: docId,
+              email: firebaseUser.email || '',
+              name: 'Master Admin',
+              role: 'master',
+              createdAt: null,
+            })
           }
         } catch {
           // Firestore might not be accessible yet
@@ -72,9 +87,17 @@ export function LoginScreen() {
             if (masterUser) {
               setUser(masterUser)
             } else {
-              // Create the user record if it doesn't exist
+              // Auto-create the user record in Firestore for Master created in Firebase Console
+              const { createUser, simpleHash } = await import('@/lib/crm/firebase-crud')
+              const hashedPassword = await simpleHash(password)
+              const docId = await createUser({
+                email,
+                name: 'Master Admin',
+                role: 'master',
+                password: hashedPassword,
+              })
               setUser({
-                id: result.uid!,
+                id: docId,
                 email,
                 name: 'Master Admin',
                 role: 'master',
