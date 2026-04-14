@@ -5,11 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { useCRMStore } from '@/stores/crm-store'
-import { loginMaster, loginAdmin, registerMaster } from '@/lib/crm/firebase-crud'
-import { auth, testFirebaseConnection, getCurrentDomain } from '@/lib/firebase'
-import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { Loader2, Building2, Shield, User, AlertTriangle, Wifi, WifiOff, Globe, Lock } from 'lucide-react'
+import { useCRMStore, MASTER_EMAIL } from '@/stores/crm-store'
+import { loginMaster, simpleHash } from '@/lib/crm/firebase-crud'
+import { auth, db, testFirebaseConnection, getCurrentDomain } from '@/lib/firebase'
+import { onAuthStateChanged } from 'firebase/auth'
+import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore'
+import { Loader2, Building2, AlertTriangle, Wifi, Globe, Lock } from 'lucide-react'
 
 export function LoginScreen() {
   const { setUser } = useCRMStore()
@@ -17,18 +18,16 @@ export function LoginScreen() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [isRegister, setIsRegister] = useState(false)
-  const [loginType, setLoginType] = useState<'master' | 'admin'>('master')
   const [firebaseStatus, setFirebaseStatus] = useState<{
-    auth: boolean;
-    firestore: boolean;
-    errors: string[];
-    currentDomain?: string;
-    authDomainAuthorized?: boolean;
+    auth: boolean
+    firestore: boolean
+    errors: string[]
+    currentDomain?: string
+    authDomainAuthorized?: boolean
   } | null>(null)
   const [testingConnection, setTestingConnection] = useState(false)
 
-  // Test Firebase connection on mount
+  // ── Test Firebase connection on mount ──────────────────────────────────────
   React.useEffect(() => {
     const testConnection = async () => {
       setTestingConnection(true)
@@ -47,54 +46,125 @@ export function LoginScreen() {
     testConnection()
   }, [])
 
-  // Listen for Firebase Auth state changes (e.g. session persistence)
+  // ── Listen for Firebase Auth state changes (session persistence) ─────────
+  // Only processes Master login to auto-restore sessions.
+  // FIX: Queries Firestore BEFORE creating to prevent duplicate master records
+  // on every page refresh.
   React.useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // User is signed in via Firebase Auth - this is a master user
+      if (firebaseUser && firebaseUser.email?.toLowerCase().trim() === MASTER_EMAIL) {
         try {
-          const { getUsers, createUser } = await import('@/lib/crm/firebase-crud')
-          const users = await getUsers()
-          const masterUser = users.find((u: any) => u.email === firebaseUser.email && u.role === 'master')
-          if (masterUser) {
-            setUser(masterUser)
+          const usersRef = collection(db, 'users')
+          const q = query(
+            usersRef,
+            where('email', '==', firebaseUser.email),
+            where('role', '==', 'master'),
+          )
+          const snapshot = await getDocs(q)
+
+          if (!snapshot.empty) {
+            // ── Existing master found — use it ──────────────────────────────
+            const userDoc = snapshot.docs[0]
+            const userData = userDoc.data()
+            setUser({
+              id: userDoc.id,
+              email: userData.email,
+              name: userData.name || 'Master Admin',
+              role: 'master',
+              companyId: '',
+              companyName: '',
+              documentType: 'cnpj' as const,
+              document: '',
+              companyPhone: '',
+              companyAddress: '',
+              active: true,
+              createdAt: userData.createdAt,
+            })
           } else {
-            // Auto-create Firestore record for Master
-            try {
-              const docId = await createUser({
-                email: firebaseUser.email || '',
-                name: 'Master Admin',
-                role: 'master',
-                password: '',
-              })
+            // ── No master record found — double-check before creating ──────
+            const checkQ = query(usersRef, where('email', '==', firebaseUser.email))
+            const checkSnap = await getDocs(checkQ)
+
+            if (!checkSnap.empty) {
+              // Record exists but with a different role — use it as-is
+              const doc = checkSnap.docs[0]
+              const data = doc.data()
               setUser({
-                id: docId,
-                email: firebaseUser.email || '',
-                name: 'Master Admin',
-                role: 'master',
-                createdAt: null,
+                id: doc.id,
+                email: data.email,
+                name: data.name || 'Master Admin',
+                role: data.role || 'master',
+                companyId: data.companyId || '',
+                companyName: data.companyName || '',
+                documentType: data.documentType || 'cnpj' as const,
+                document: data.document || '',
+                companyPhone: data.companyPhone || '',
+                companyAddress: data.companyAddress || '',
+                active: data.active !== false,
+                createdAt: data.createdAt,
               })
-            } catch (firestoreErr: any) {
-              console.error('[Login] Firestore write failed:', firestoreErr.code, firestoreErr.message)
-              // If Firestore fails, still log in with basic info
-              setUser({
-                id: firebaseUser.uid,
-                email: firebaseUser.email || '',
-                name: 'Master Admin',
-                role: 'master',
-                createdAt: null,
-              })
+            } else {
+              // ── Truly does not exist — create the Firestore record ───────
+              try {
+                const hashedPassword = await simpleHash('')
+                const docRef = await addDoc(usersRef, {
+                  email: firebaseUser.email || '',
+                  name: 'Master Admin',
+                  role: 'master',
+                  password: hashedPassword,
+                  active: true,
+                  createdAt: serverTimestamp(),
+                })
+                setUser({
+                  id: docRef.id,
+                  email: firebaseUser.email || '',
+                  name: 'Master Admin',
+                  role: 'master',
+                  companyId: '',
+                  companyName: '',
+                  documentType: 'cnpj' as const,
+                  document: '',
+                  companyPhone: '',
+                  companyAddress: '',
+                  active: true,
+                  createdAt: null,
+                })
+              } catch (createErr: any) {
+                console.error('[Login] Failed to create Master Firestore record:', createErr.code, createErr.message)
+                // Still allow login with Firebase Auth info
+                setUser({
+                  id: firebaseUser.uid,
+                  email: firebaseUser.email || '',
+                  name: 'Master Admin',
+                  role: 'master',
+                  companyId: '',
+                  companyName: '',
+                  documentType: 'cnpj' as const,
+                  document: '',
+                  companyPhone: '',
+                  companyAddress: '',
+                  active: true,
+                  createdAt: null,
+                })
+              }
             }
           }
         } catch (err: any) {
           console.error('[Login] onAuthStateChanged error:', err.code, err.message)
-          // If Firestore read fails, still allow login with Firebase Auth info
+          // If Firestore is unreachable, still allow login
           if (firebaseUser) {
             setUser({
               id: firebaseUser.uid,
               email: firebaseUser.email || '',
               name: 'Master Admin',
               role: 'master',
+              companyId: '',
+              companyName: '',
+              documentType: 'cnpj' as const,
+              document: '',
+              companyPhone: '',
+              companyAddress: '',
+              active: true,
               createdAt: null,
             })
           }
@@ -104,97 +174,201 @@ export function LoginScreen() {
     return () => unsubscribe()
   }, [setUser])
 
+  // ── Error translation ─────────────────────────────────────────────────────
+  const translateError = (msg: string): string => {
+    if (!msg) return 'Erro ao fazer login'
+    if (msg.includes('auth/unauthorized-domain')) {
+      const domain = getCurrentDomain()
+      return `Domínio "${domain}" não autorizado no Firebase. Veja as instruções abaixo.`
+    }
+    if (msg.includes('auth/invalid-credential') || msg.includes('auth/wrong-password') || msg.includes('auth/invalid-login'))
+      return 'E-mail ou senha incorretos'
+    if (msg.includes('auth/user-not-found')) return 'Usuário não encontrado'
+    if (msg.includes('auth/email-already-in-use')) return 'Este e-mail já está em uso'
+    if (msg.includes('auth/weak-password')) return 'A senha deve ter pelo menos 6 caracteres'
+    if (msg.includes('auth/invalid-email')) return 'E-mail inválido'
+    if (msg.includes('auth/api-key-not-valid') || msg.includes('auth/invalid-api-key'))
+      return 'API Key do Firebase inválida. Verifique as configurações.'
+    if (msg.includes('auth/network-request-failed')) return 'Erro de rede. Verifique sua conexão com a internet.'
+    if (msg.includes('auth/too-many-requests')) return 'Muitas tentativas. Aguarde um momento e tente novamente.'
+    if (msg.includes('auth/app-not-authorized')) return 'App não autorizado no Firebase. Verifique as configurações do projeto.'
+    if (msg.includes('permission-denied')) return 'Permissão negada no Firestore. Configure as regras de segurança.'
+    if (msg.includes('auth/')) return msg.replace('auth/', '').replace(/-/g, ' ')
+    return msg || 'Erro ao fazer login'
+  }
+
+  // ── Form submission ───────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
 
     try {
-      if (isRegister) {
-        if (loginType === 'master') {
-          const result = await registerMaster(email, password)
-          if (result.success) {
+      const normalizedEmail = email.toLowerCase().trim()
+
+      if (normalizedEmail === MASTER_EMAIL) {
+        // ── Master login ───────────────────────────────────────────────────
+        // Use Firebase Auth (signInWithEmailAndPassword)
+        const result = await loginMaster(email, password)
+        if (!result.success) {
+          setError(translateError(result.error || ''))
+          return
+        }
+
+        // Check Firestore for existing master record (avoid duplicates)
+        try {
+          const usersRef = collection(db, 'users')
+          const masterQ = query(
+            usersRef,
+            where('email', '==', email),
+            where('role', '==', 'master'),
+          )
+          const masterSnap = await getDocs(masterQ)
+
+          if (!masterSnap.empty) {
+            const doc = masterSnap.docs[0]
+            const data = doc.data()
             setUser({
-              id: result.uid!,
-              email,
-              name: 'Master Admin',
+              id: doc.id,
+              email: data.email,
+              name: data.name || 'Master Admin',
               role: 'master',
-              createdAt: null,
+              companyId: '',
+              companyName: '',
+              documentType: 'cnpj' as const,
+              document: '',
+              companyPhone: '',
+              companyAddress: '',
+              active: true,
+              createdAt: data.createdAt,
             })
           } else {
-            setError(translateError(result.error || ''))
+            // Double-check before creating
+            const checkQ = query(usersRef, where('email', '==', email))
+            const checkSnap = await getDocs(checkQ)
+
+            if (!checkSnap.empty) {
+              const doc = checkSnap.docs[0]
+              const data = doc.data()
+              setUser({
+                id: doc.id,
+                email: data.email,
+                name: data.name || 'Master Admin',
+                role: data.role || 'master',
+                companyId: data.companyId || '',
+                companyName: data.companyName || '',
+                documentType: data.documentType || ('cnpj' as const),
+                document: data.document || '',
+                companyPhone: data.companyPhone || '',
+                companyAddress: data.companyAddress || '',
+                active: data.active !== false,
+                createdAt: data.createdAt,
+              })
+            } else {
+              try {
+                const hashedPassword = await simpleHash(password)
+                const docRef = await addDoc(usersRef, {
+                  email,
+                  name: 'Master Admin',
+                  role: 'master',
+                  password: hashedPassword,
+                  active: true,
+                  createdAt: serverTimestamp(),
+                })
+                setUser({
+                  id: docRef.id,
+                  email,
+                  name: 'Master Admin',
+                  role: 'master',
+                  companyId: '',
+                  companyName: '',
+                  documentType: 'cnpj' as const,
+                  document: '',
+                  companyPhone: '',
+                  companyAddress: '',
+                  active: true,
+                  createdAt: null,
+                })
+              } catch (createErr: any) {
+                console.warn('[Login] Could not create Master Firestore record:', createErr.code, createErr.message)
+                // Still allow login
+                setUser({
+                  id: result.uid || '',
+                  email,
+                  name: 'Master Admin',
+                  role: 'master',
+                  companyId: '',
+                  companyName: '',
+                  documentType: 'cnpj' as const,
+                  document: '',
+                  companyPhone: '',
+                  companyAddress: '',
+                  active: true,
+                  createdAt: null,
+                })
+              }
+            }
           }
+        } catch (firestoreErr: any) {
+          console.warn('[Login] Firestore access failed, logging in with Auth only:', firestoreErr.code, firestoreErr.message)
+          setUser({
+            id: result.uid || '',
+            email: result.email || email,
+            name: 'Master Admin',
+            role: 'master',
+            companyId: '',
+            companyName: '',
+            documentType: 'cnpj' as const,
+            document: '',
+            companyPhone: '',
+            companyAddress: '',
+            active: true,
+            createdAt: null,
+          })
         }
       } else {
-        if (loginType === 'master') {
-          // Step 1: Authenticate with Firebase Auth
-          const result = await loginMaster(email, password)
-          if (result.success) {
-            // Step 2: Try to get/create Firestore user record
-            try {
-              const { getUsers, createUser, simpleHash } = await import('@/lib/crm/firebase-crud')
-              const users = await getUsers()
-              const masterUser = users.find((u: any) => u.email === email)
-              if (masterUser) {
-                setUser(masterUser)
-              } else {
-                // Auto-create the user record in Firestore
-                try {
-                  const hashedPassword = await simpleHash(password)
-                  const docId = await createUser({
-                    email,
-                    name: 'Master Admin',
-                    role: 'master',
-                    password: hashedPassword,
-                  })
-                  setUser({
-                    id: docId,
-                    email,
-                    name: 'Master Admin',
-                    role: 'master',
-                    createdAt: null,
-                  })
-                } catch (createErr: any) {
-                  console.warn('[Login] Could not create Firestore user record:', createErr.code, createErr.message)
-                  // Still allow login - Firestore record will be created later
-                  setUser({
-                    id: result.uid || '',
-                    email,
-                    name: 'Master Admin',
-                    role: 'master',
-                    createdAt: null,
-                  })
-                }
-              }
-            } catch (firestoreErr: any) {
-              console.warn('[Login] Firestore access failed, logging in with Auth only:', firestoreErr.code, firestoreErr.message)
-              // If Firestore is not accessible, still allow login via Firebase Auth
-              setUser({
-                id: result.uid || '',
-                email: result.email || email,
-                name: 'Master Admin',
-                role: 'master',
-                createdAt: null,
-              })
-            }
-          } else {
-            setError(translateError(result.error || ''))
-          }
-        } else {
-          // Admin login - requires Firestore access
-          const result = await loginAdmin(email, password)
-          if (result.success) {
-            setUser({
-              id: result.uid!,
-              email: result.email!,
-              name: result.name!,
-              role: 'admin',
-              createdAt: null,
-            })
-          } else {
-            setError(result.error || 'Erro ao fazer login')
-          }
+        // ── Admin / User login ─────────────────────────────────────────────
+        // Query Firestore directly so we can check `active` field
+        const usersRef = collection(db, 'users')
+        const q = query(usersRef, where('email', '==', email))
+        const snapshot = await getDocs(q)
+
+        if (snapshot.empty) {
+          setError('Usuário não encontrado')
+          return
         }
+
+        const userDoc = snapshot.docs[0]
+        const userData = userDoc.data()
+
+        // Check if user account is active
+        if (userData.active === false) {
+          setError('Conta desativada. Entre em contato com o administrador.')
+          return
+        }
+
+        // Compare hashed password
+        const hashedPassword = await simpleHash(password)
+        if (userData.password !== hashedPassword) {
+          setError('Senha incorreta')
+          return
+        }
+
+        // Success — set user with proper role (admin or user)
+        setUser({
+          id: userDoc.id,
+          email: userData.email,
+          name: userData.name || '',
+          role: userData.role || 'user',
+          companyId: userData.companyId || '',
+          companyName: userData.companyName || '',
+          documentType: userData.documentType || ('cnpj' as const),
+          document: userData.document || '',
+          companyPhone: userData.companyPhone || '',
+          companyAddress: userData.companyAddress || '',
+          active: userData.active !== false,
+          createdAt: userData.createdAt,
+        })
       }
     } catch (err: any) {
       console.error('[Login] Unexpected error:', err)
@@ -220,26 +394,7 @@ export function LoginScreen() {
     }
   }
 
-  const translateError = (msg: string) => {
-    if (!msg) return 'Erro ao fazer login'
-    if (msg.includes('auth/unauthorized-domain')) {
-      const currentDomain = getCurrentDomain()
-      return `Domínio "${currentDomain}" não autorizado no Firebase. Veja as instruções abaixo.`
-    }
-    if (msg.includes('auth/invalid-credential') || msg.includes('auth/wrong-password') || msg.includes('auth/invalid-login')) return 'E-mail ou senha incorretos'
-    if (msg.includes('auth/user-not-found')) return 'Usuário não encontrado'
-    if (msg.includes('auth/email-already-in-use')) return 'Este e-mail já está em uso'
-    if (msg.includes('auth/weak-password')) return 'A senha deve ter pelo menos 6 caracteres'
-    if (msg.includes('auth/invalid-email')) return 'E-mail inválido'
-    if (msg.includes('auth/api-key-not-valid') || msg.includes('auth/invalid-api-key')) return 'API Key do Firebase inválida. Verifique as configurações.'
-    if (msg.includes('auth/network-request-failed')) return 'Erro de rede. Verifique sua conexão com a internet.'
-    if (msg.includes('auth/too-many-requests')) return 'Muitas tentativas. Aguarde um momento e tente novamente.'
-    if (msg.includes('auth/app-not-authorized')) return 'App não autorizado no Firebase. Verifique as configurações do projeto.'
-    if (msg.includes('permission-denied')) return 'Permissão negada no Firestore. Configure as regras de segurança.'
-    if (msg.includes('auth/')) return msg.replace('auth/', '').replace(/-/g, ' ')
-    return msg || 'Erro ao fazer login'
-  }
-
+  // ── Connection test handler ───────────────────────────────────────────────
   const handleTestConnection = async () => {
     setTestingConnection(true)
     setError('')
@@ -263,13 +418,16 @@ export function LoginScreen() {
     }
   }
 
+  // ── Derived values ────────────────────────────────────────────────────────
   const currentDomain = firebaseStatus?.currentDomain || getCurrentDomain()
   const hasDomainIssue = firebaseStatus?.authDomainAuthorized === false
   const hasFirestoreIssue = firebaseStatus && !firebaseStatus.firestore
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1e3a5f] via-[#2d4f7a] to-[#1a2f4a] p-4">
       <div className="w-full max-w-md">
+        {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm mb-4">
             <Building2 className="w-8 h-8 text-white" />
@@ -378,39 +536,17 @@ service cloud.firestore {
           </div>
         )}
 
+        {/* Login Card */}
         <Card className="border-0 shadow-2xl">
           <CardHeader className="space-y-1 pb-4">
             <CardTitle className="text-2xl text-center text-[#1e3a5f]">
-              {isRegister ? 'Criar Conta' : 'Entrar'}
+              Entrar
             </CardTitle>
             <CardDescription className="text-center">
-              {isRegister ? 'Crie sua conta de administrador' : 'Acesse o painel do CRM'}
+              Acesse o painel do CRM
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {!isRegister && (
-              <div className="flex gap-2 mb-6">
-                <Button
-                  type="button"
-                  variant={loginType === 'master' ? 'default' : 'outline'}
-                  className={`flex-1 ${loginType === 'master' ? 'bg-[#1e3a5f] hover:bg-[#2d4f7a]' : ''}`}
-                  onClick={() => setLoginType('master')}
-                >
-                  <Shield className="w-4 h-4 mr-2" />
-                  Master
-                </Button>
-                <Button
-                  type="button"
-                  variant={loginType === 'admin' ? 'default' : 'outline'}
-                  className={`flex-1 ${loginType === 'admin' ? 'bg-[#1e3a5f] hover:bg-[#2d4f7a]' : ''}`}
-                  onClick={() => setLoginType('admin')}
-                >
-                  <User className="w-4 h-4 mr-2" />
-                  Admin
-                </Button>
-              </div>
-            )}
-
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">E-mail</Label>
@@ -453,34 +589,18 @@ service cloud.firestore {
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     Entrando...
                   </>
-                ) : isRegister ? (
-                  'Criar Conta'
                 ) : (
                   'Entrar'
                 )}
               </Button>
             </form>
 
-            <div className="mt-4 text-center">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsRegister(!isRegister)
-                  setError('')
-                }}
-                className="text-sm text-[#1e3a5f] hover:underline"
-              >
-                {isRegister ? 'Já tem uma conta? Entrar' : 'Primeiro acesso? Criar conta Master'}
-              </button>
+            {/* Info text */}
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg text-xs text-blue-700 text-center">
+              Usuários Admin são criados pelo Master nas Configurações.
             </div>
 
-            {loginType === 'admin' && !isRegister && (
-              <div className="mt-4 p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
-                Usuários Admin são criados pelo Master nas Configurações.
-              </div>
-            )}
-
-            {/* Diagnostics button */}
+            {/* Diagnostics */}
             <div className="mt-4 pt-4 border-t border-gray-100">
               <Button
                 type="button"

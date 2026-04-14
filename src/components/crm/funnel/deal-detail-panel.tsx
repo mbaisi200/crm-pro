@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
-import { useCRMStore, Activity, Task } from '@/stores/crm-store'
+import { useCRMStore, Activity, Task, getTenantId } from '@/stores/crm-store'
 import {
   Sheet,
   SheetContent,
@@ -121,6 +121,7 @@ export function DealDetailPanel() {
         dealId: selectedDeal.id,
         authorId: useCRMStore.getState().currentUser?.name || 'Usuário',
         content: newNote,
+        tenantId: getTenantId(useCRMStore.getState().currentUser) || '',
       })
       setDealActivities(prev => [...prev, {
         id: actId,
@@ -128,6 +129,7 @@ export function DealDetailPanel() {
         dealId: selectedDeal.id,
         authorId: useCRMStore.getState().currentUser?.name || 'Usuário',
         content: newNote,
+        tenantId: getTenantId(useCRMStore.getState().currentUser) || '',
         createdAt: { seconds: Date.now() / 1000 },
       }])
       setNewNote('')
@@ -148,6 +150,7 @@ export function DealDetailPanel() {
         dueDate: newTaskDueDate || new Date().toISOString().split('T')[0],
         completed: false,
         assigneeId: useCRMStore.getState().currentUser?.name || 'Usuário',
+        tenantId: getTenantId(useCRMStore.getState().currentUser) || '',
       })
       setDealTasks(prev => [...prev, {
         id: taskId,
@@ -156,6 +159,7 @@ export function DealDetailPanel() {
         dueDate: newTaskDueDate || new Date().toISOString().split('T')[0],
         completed: false,
         assigneeId: useCRMStore.getState().currentUser?.name || 'Usuário',
+        tenantId: getTenantId(useCRMStore.getState().currentUser) || '',
         createdAt: { seconds: Date.now() / 1000 },
       }])
       setNewTaskTitle('')

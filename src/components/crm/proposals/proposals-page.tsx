@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo, useRef } from 'react'
-import { useCRMStore, Proposal } from '@/stores/crm-store'
+import { useCRMStore, Proposal, getTenantId } from '@/stores/crm-store'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -94,7 +94,7 @@ const PROPOSAL_TEMPLATES = [
 ]
 
 export function ProposalsPage() {
-  const { proposals, setProposals, deals, companies, contacts } = useCRMStore()
+  const { proposals, setProposals, deals, companies, contacts, currentUser } = useCRMStore()
   const [search, setSearch] = useState('')
   const [showDialog, setShowDialog] = useState(false)
   const [editingProposal, setEditingProposal] = useState<Proposal | null>(null)
@@ -214,8 +214,8 @@ export function ProposalsPage() {
           p.id === editingProposal.id ? { ...p, ...formData } : p
         ))
       } else {
-        const id = await createProposal(formData)
-        setProposals([...proposals, { id, ...formData, createdAt: null }])
+        const id = await createProposal({ ...formData, tenantId: getTenantId(currentUser) || '' })
+        setProposals([...proposals, { id, ...formData, tenantId: getTenantId(currentUser) || '', createdAt: null }])
       }
       setShowDialog(false)
     } catch (error) {

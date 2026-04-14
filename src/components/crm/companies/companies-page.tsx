@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
-import { useCRMStore, Company } from '@/stores/crm-store'
+import { useCRMStore, Company, getTenantId } from '@/stores/crm-store'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -49,7 +49,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 
 export function CompaniesPage() {
-  const { companies, setCompanies, deals, contacts } = useCRMStore()
+  const { companies, setCompanies, deals, contacts, currentUser } = useCRMStore()
   const [search, setSearch] = useState('')
   const [showDialog, setShowDialog] = useState(false)
   const [editingCompany, setEditingCompany] = useState<Company | null>(null)
@@ -100,8 +100,8 @@ export function CompaniesPage() {
           c.id === editingCompany.id ? { ...c, ...formData } : c
         ))
       } else {
-        const id = await createCompany({ ...formData, customFields: {} })
-        setCompanies([...companies, { id, ...formData, customFields: {}, createdAt: null }])
+        const id = await createCompany({ ...formData, customFields: {}, tenantId: getTenantId(currentUser) || '' })
+        setCompanies([...companies, { id, ...formData, customFields: {}, tenantId: getTenantId(currentUser) || '', createdAt: null }])
       }
       setShowDialog(false)
     } catch (error) {

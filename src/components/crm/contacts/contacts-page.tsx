@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
-import { useCRMStore, Contact } from '@/stores/crm-store'
+import { useCRMStore, Contact, getTenantId } from '@/stores/crm-store'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,7 +45,7 @@ import {
 } from 'lucide-react'
 
 export function ContactsPage() {
-  const { contacts, setContacts, companies } = useCRMStore()
+  const { contacts, setContacts, companies, currentUser } = useCRMStore()
   const [search, setSearch] = useState('')
   const [showDialog, setShowDialog] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
@@ -96,8 +96,8 @@ export function ContactsPage() {
           c.id === editingContact.id ? { ...c, ...formData } : c
         ))
       } else {
-        const id = await createContact({ ...formData, customFields: {} })
-        setContacts([...contacts, { id, ...formData, customFields: {}, createdAt: null }])
+        const id = await createContact({ ...formData, customFields: {}, tenantId: getTenantId(currentUser) || '' })
+        setContacts([...contacts, { id, ...formData, customFields: {}, tenantId: getTenantId(currentUser) || '', createdAt: null }])
       }
       setShowDialog(false)
     } catch (error) {

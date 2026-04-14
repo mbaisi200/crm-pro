@@ -1,12 +1,34 @@
 import { create } from 'zustand'
 
-export type ViewType = 'dashboard' | 'funnel' | 'companies' | 'contacts' | 'products' | 'proposals' | 'settings'
+// ── Constants ──────────────────────────────────────────────────────────────
+export const MASTER_EMAIL = 'baisinextel@gmail.com'
 
+// ── View types ─────────────────────────────────────────────────────────────
+export type ViewType = 'dashboard' | 'funnel' | 'companies' | 'contacts' | 'products' | 'proposals' | 'settings'
+export type MasterViewType = 'tenants' | 'settings' | 'dashboard' | null
+
+// ── Helper functions ───────────────────────────────────────────────────────
+export function getTenantId(user: User | null): string | null {
+  if (!user) return null
+  if (user.role === 'master') return 'master'
+  if (user.role === 'admin') return user.id
+  if (user.role === 'user') return user.companyId
+  return null
+}
+
+// ── Interfaces ─────────────────────────────────────────────────────────────
 export interface User {
   id: string
   email: string
   name: string
-  role: 'master' | 'admin'
+  role: 'master' | 'admin' | 'user'
+  companyId: string
+  companyName: string
+  documentType: 'cnpj' | 'cpf'
+  document: string
+  companyPhone: string
+  companyAddress: string
+  active: boolean
   createdAt: any
 }
 
@@ -14,6 +36,7 @@ export interface Funnel {
   id: string
   name: string
   stages: Stage[]
+  tenantId: string
   createdAt: any
 }
 
@@ -35,6 +58,7 @@ export interface Deal {
   owner: string
   products: string[]
   customFields: Record<string, any>
+  tenantId: string
   createdAt: any
   updatedAt: any
 }
@@ -50,6 +74,7 @@ export interface Company {
   website: string
   owner: string
   customFields: Record<string, any>
+  tenantId: string
   createdAt: any
 }
 
@@ -62,6 +87,7 @@ export interface Contact {
   companyId: string
   owner: string
   customFields: Record<string, any>
+  tenantId: string
   createdAt: any
 }
 
@@ -72,6 +98,7 @@ export interface Product {
   price: number
   description: string
   category: string
+  tenantId: string
   createdAt: any
 }
 
@@ -83,6 +110,7 @@ export interface Proposal {
   template: string
   content: string
   status: 'draft' | 'sent' | 'accepted' | 'rejected'
+  tenantId: string
   createdAt: any
 }
 
@@ -92,6 +120,7 @@ export interface Activity {
   dealId: string
   authorId: string
   content: string
+  tenantId: string
   createdAt: any
 }
 
@@ -102,6 +131,7 @@ export interface Task {
   dueDate: string
   completed: boolean
   assigneeId: string
+  tenantId: string
   createdAt: any
 }
 
@@ -111,6 +141,7 @@ export interface CustomField {
   name: string
   type: 'text' | 'date' | 'select' | 'formula'
   options: string[]
+  tenantId: string
   createdAt: any
 }
 
@@ -120,9 +151,11 @@ export interface Automation {
   conditions: string
   actions: string
   active: boolean
+  tenantId: string
   createdAt: any
 }
 
+// ── State ──────────────────────────────────────────────────────────────────
 interface CRMState {
   // Auth
   isAuthenticated: boolean
@@ -133,6 +166,10 @@ interface CRMState {
   // Navigation
   activeView: ViewType
   setActiveView: (view: ViewType) => void
+
+  // Master-specific navigation
+  activeViewMaster: MasterViewType
+  setActiveViewMaster: (view: MasterViewType) => void
 
   // Sidebar
   sidebarCollapsed: boolean
@@ -184,11 +221,15 @@ export const useCRMStore = create<CRMState>((set) => ({
   isAuthenticated: false,
   currentUser: null,
   setUser: (user) => set({ currentUser: user, isAuthenticated: !!user }),
-  logout: () => set({ currentUser: null, isAuthenticated: false, activeView: 'dashboard', selectedDeal: null, selectedFunnel: null }),
+  logout: () => set({ currentUser: null, isAuthenticated: false, activeView: 'dashboard', activeViewMaster: null, selectedDeal: null, selectedFunnel: null }),
 
   // Navigation
   activeView: 'dashboard',
   setActiveView: (view) => set({ activeView: view }),
+
+  // Master-specific navigation
+  activeViewMaster: null,
+  setActiveViewMaster: (view) => set({ activeViewMaster: view }),
 
   // Sidebar
   sidebarCollapsed: false,

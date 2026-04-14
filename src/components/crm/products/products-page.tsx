@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
-import { useCRMStore, Product } from '@/stores/crm-store'
+import { useCRMStore, Product, getTenantId } from '@/stores/crm-store'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,7 +37,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 
 export function ProductsPage() {
-  const { products, setProducts } = useCRMStore()
+  const { products, setProducts, currentUser } = useCRMStore()
   const [search, setSearch] = useState('')
   const [showDialog, setShowDialog] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
@@ -91,8 +91,8 @@ export function ProductsPage() {
           p.id === editingProduct.id ? { ...p, ...data } : p
         ))
       } else {
-        const id = await createProduct(data)
-        setProducts([...products, { id, ...data, createdAt: null }])
+        const id = await createProduct({ ...data, tenantId: getTenantId(currentUser) || '' })
+        setProducts([...products, { id, ...data, tenantId: getTenantId(currentUser) || '', createdAt: null }])
       }
       setShowDialog(false)
     } catch (error) {

@@ -13,14 +13,32 @@ import {
   AlertCircle,
   ArrowUpRight,
   ArrowDownRight,
+  Building2,
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 
 const COLORS = ['#6366f1', '#f59e0b', '#3b82f6', '#f97316', '#22c55e']
 
 export function DashboardPage() {
-  const { deals, companies, contacts, funnels, activities, tasks } = useCRMStore()
+  const { deals, companies, contacts, funnels, activities, tasks, currentUser, users } = useCRMStore()
 
+  // ── Header info based on role ──────────────────────────────────────────
+  const headerInfo = useMemo(() => {
+    if (!currentUser) return { title: 'Dashboard', subtitle: '' }
+    if (currentUser.role === 'master') {
+      return { title: 'Painel Master - Visão Geral', subtitle: 'Todas as Empresas' }
+    }
+    const companyName = currentUser.companyName || 'Empresa'
+    return { title: 'Dashboard', subtitle: companyName }
+  }, [currentUser])
+
+  // ── Master-only: count of admin users (companies) ──────────────────────
+  const adminCount = useMemo(() => {
+    if (!currentUser || currentUser.role !== 'master') return 0
+    return users.filter(u => u.role === 'admin').length
+  }, [currentUser, users])
+
+  // ── KPIs (data already filtered by tenantId from page.tsx) ────────────
   const kpis = useMemo(() => {
     const totalDeals = deals.length
     const totalValue = deals.reduce((sum, d) => sum + (d.value || 0), 0)
@@ -93,8 +111,36 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Dashboard Header */}
+      <div>
+        <h2 className="text-2xl font-bold text-[#1e3a5f]">{headerInfo.title}</h2>
+        {headerInfo.subtitle && (
+          <p className="text-sm text-gray-500 mt-1">{headerInfo.subtitle}</p>
+        )}
+      </div>
+
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${currentUser?.role === 'master' ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
+        {currentUser?.role === 'master' && (
+          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow bg-gradient-to-br from-purple-50 to-indigo-50">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Total de Empresas (Admins)</p>
+                  <p className="text-3xl font-bold text-[#1e3a5f] mt-1">{adminCount}</p>
+                  <div className="flex items-center mt-2 text-gray-500 text-xs">
+                    <Building2 className="w-3 h-3 mr-1" />
+                    Empresas cadastradas
+                  </div>
+                </div>
+                <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
+                  <Building2 className="w-6 h-6 text-purple-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="border-0 shadow-sm hover:shadow-md transition-shadow">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">

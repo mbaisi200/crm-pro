@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo, useCallback } from 'react'
-import { useCRMStore, Deal, Stage } from '@/stores/crm-store'
+import { useCRMStore, Deal, Stage, getTenantId } from '@/stores/crm-store'
 import { DealCard } from './deal-card'
 import { DealDetailPanel } from './deal-detail-panel'
 import { updateDeal, createDeal, deleteDeal } from '@/lib/crm/firebase-crud'
@@ -155,6 +155,7 @@ export function FunnelView() {
         owner: newDealData.owner || currentUser?.name || '',
         products: [],
         customFields: {},
+        tenantId: getTenantId(currentUser) || '',
       })
 
       // Optimistically add to local state
@@ -169,6 +170,7 @@ export function FunnelView() {
         owner: newDealData.owner || '',
         products: [],
         customFields: {},
+        tenantId: getTenantId(currentUser) || '',
         createdAt: null,
         updatedAt: null,
       }])
