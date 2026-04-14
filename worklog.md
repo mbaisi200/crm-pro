@@ -61,3 +61,25 @@ Work Log:
 Stage Summary:
 - All bugs fixed
 - Application fully functional
+
+---
+Task ID: 4
+Agent: Main Agent
+Task: Fix Firebase login error - add diagnostics and improve error handling
+
+Work Log:
+- Identified root cause: login-screen.tsx catch block swallowed errors with generic "Ocorreu um erro inesperado"
+- Most likely issue: Firestore Security Rules blocking all access (default behavior)
+- Added testFirebaseConnection() utility to firebase.ts for testing Auth + Firestore connectivity
+- Rewrote login-screen.tsx with: auto-diagnostics on mount, detailed error messages, Firestore fallback
+- Added visual Firebase status indicators (green/red) on login screen
+- Added copy-paste Firestore rules instructions directly in the UI
+- Added Portuguese translations for all Firebase error codes
+- Added "Testar conexao com Firebase" button in login form
+- Build passes successfully
+
+Stage Summary:
+- Main issue: Firestore Security Rules likely blocking access
+- Fix: Comprehensive error diagnostics + fallback login path (Auth works even if Firestore blocks)
+- User needs to configure Firestore Rules in Firebase Console
+- User may also need to create the Firestore Database if not yet created
