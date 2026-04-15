@@ -52,14 +52,19 @@ function MainContent() {
 function TenantsOverview() {
   const [admins, setAdmins] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const loadTenants = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
+      console.log('[TenantsOverview] Fetching admins...')
       const data = await getAdmins()
+      console.log('[TenantsOverview] Admins loaded:', data.length)
       setAdmins(data)
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading tenants:', err)
+      setError(err?.message || 'Erro ao carregar empresas')
     } finally {
       setLoading(false)
     }
@@ -69,10 +74,27 @@ function TenantsOverview() {
     loadTenants()
   }, [loadTenants])
 
+  // Loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+      <div className="flex flex-col items-center justify-center py-16 gap-4">
+        <Loader2 className="w-8 h-8 animate-spin text-[#1e3a5f]" />
+        <p className="text-gray-500 text-sm">Carregando empresas...</p>
+      </div>
+    )
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4">
+        <div className="text-center">
+          <p className="text-red-500 font-medium">Erro ao carregar empresas</p>
+          <p className="text-gray-500 text-sm mt-1">{error}</p>
+        </div>
+        <Button onClick={loadTenants} variant="outline" size="sm">
+          Tentar novamente
+        </Button>
       </div>
     )
   }
@@ -396,6 +418,9 @@ export default function Home() {
   // For Master: if activeViewMaster === 'tenants', show TenantsOverview
   // Otherwise show the regular MainContent
   const showTenantsView = isMaster && activeViewMaster === 'tenants'
+
+  // Debug: log state changes
+  console.log('[Home] isMaster:', isMaster, 'activeViewMaster:', activeViewMaster, 'showTenantsView:', showTenantsView)
 
   return (
     <div className="h-screen flex overflow-hidden bg-[#f5f6fa]">

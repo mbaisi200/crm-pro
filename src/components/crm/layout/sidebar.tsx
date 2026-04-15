@@ -108,6 +108,7 @@ export function Sidebar() {
       setActiveViewMaster(item.masterView)
     } else if (item.view) {
       setActiveView(item.view)
+      setActiveViewMaster(null)
     }
   }
 

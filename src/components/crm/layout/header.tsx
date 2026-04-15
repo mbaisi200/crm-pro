@@ -17,12 +17,19 @@ const viewTitles: Record<ViewType, string> = {
 }
 
 export function Header() {
-  const { activeView } = useCRMStore()
+  const { activeView, activeViewMaster, currentUser } = useCRMStore()
+
+  const title = React.useMemo(() => {
+    if (currentUser?.role === 'master' && activeViewMaster === 'tenants') {
+      return 'Empresas (Admins)'
+    }
+    return viewTitles[activeView]
+  }, [activeView, activeViewMaster, currentUser?.role])
 
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0">
       <div>
-        <h2 className="text-xl font-semibold text-[#1e3a5f]">{viewTitles[activeView]}</h2>
+        <h2 className="text-xl font-semibold text-[#1e3a5f]">{title}</h2>
       </div>
       <div className="flex items-center gap-3">
         <div className="relative hidden sm:block">
